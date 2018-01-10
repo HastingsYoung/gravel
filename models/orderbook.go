@@ -5,21 +5,24 @@ package models
 import (
 	"container/heap"
 	"errors"
+	"fmt"
+	"sync"
 )
 
-const (
-	ORDER_BOOK_TYPE_ASK = "ASK"
-	ORDER_BOOK_TYPE_BID = "BID"
-)
-
+// Important: unlike the operations under OrderQueue,
+// OrderBook struct is thread unsafe, please use Exchange
+// to handle higher-level concurrencies
 func NewBook() *OrderBook {
 	return &OrderBook{
 		queues: map[string]OrderQueue{},
+		Deals:  make(chan *Deal),
 	}
 }
 
+// An orderbook lists the trading options for a specified stock
 type OrderBook struct {
 	queues map[string]OrderQueue
+	Deals  chan *Deal
 }
 
 func (ob *OrderBook) Sum() *Summary {
@@ -28,8 +31,24 @@ func (ob *OrderBook) Sum() *Summary {
 	}
 }
 
-func (ob *OrderBook) List(key string, queue OrderQueue) {
+func (ob *OrderBook) Update() {
+	select {
+	case deal := <-ob.Deals:
+		fmt.Println("Price:", deal.Price, "Amount:", deal.Amount, "Timestamp:", deal.Timestamp, "Total:", deal.Total)
+	default:
+	}
+}
+
+func (ob *OrderBook) SetQueue(key string, queue OrderQueue) {
 	ob.queues[key] = queue
+}
+
+func (ob *OrderBook) GetQueue(key string) OrderQueue {
+	return ob.queues[key]
+}
+
+func (ob *OrderBook) Queues() *map[string]OrderQueue {
+	return &ob.queues
 }
 
 type Summary struct {
@@ -56,6 +75,7 @@ func NewQueueAsk() *OrderQueueAsk {
 type OrderQueueAsk struct {
 	items  []*Order
 	lookup map[interface{}]*Order // two-way mappings
+	sync.RWMutex
 }
 
 // Interface method for heap
@@ -78,13 +98,13 @@ func (ask *OrderQueueAsk) Swap(i, j int) {
 // Interface method for heap
 func (ask *OrderQueueAsk) Push(x interface{}) {
 	order := x.(*Order)
-	order.Index = len(ask.items)
+	order.Index = ask.Len()
 	ask.items = append(ask.items, order)
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Pop() interface{} {
-	n := len(ask.items)
+	n := ask.Len()
 	order := ask.items[n-1]
 	order.Index = -1
 	ask.items = ask.items[0 : n-1]
@@ -93,6 +113,8 @@ func (ask *OrderQueueAsk) Pop() interface{} {
 
 // Initialise the order queue
 func (ask *OrderQueueAsk) Init() {
+	ask.Lock()
+	defer ask.Unlock()
 	heap.Init(ask)
 }
 
@@ -101,6 +123,9 @@ func (ask *OrderQueueAsk) Add(o *Order) {
 	if _, ok := ask.lookup[o.OrderId]; ok {
 		return
 	}
+
+	ask.Lock()
+	defer ask.Unlock()
 
 	heap.Push(ask, o)
 	ask.lookup[o.OrderId] = o
@@ -111,6 +136,9 @@ func (ask *OrderQueueAsk) Next() *Order {
 		return nil
 	}
 
+	ask.Lock()
+	defer ask.Unlock()
+
 	order := heap.Pop(ask).(*Order)
 	delete(ask.lookup, order.OrderId)
 	return order
@@ -118,8 +146,11 @@ func (ask *OrderQueueAsk) Next() *Order {
 
 func (ask *OrderQueueAsk) Update(id string, n *Order) error {
 	if _, ok := ask.lookup[id]; !ok {
-		return errors.New("order does not exist")
+		return errors.New("Order does not exist")
 	}
+
+	ask.Lock()
+	defer ask.Unlock()
 
 	index := ask.lookup[id].Index
 
@@ -128,16 +159,22 @@ func (ask *OrderQueueAsk) Update(id string, n *Order) error {
 	return nil
 }
 
+// debug: concurrent access
 func (ask *OrderQueueAsk) Peek(i int) *Order {
-	if ok := ask.items[i]; ok == nil {
-		return ok
+
+	var (
+		l = ask.Len()
+	)
+
+	if i >= l {
+		return nil
 	}
 
 	return ask.items[i]
 }
 
 func (ask *OrderQueueAsk) IsEmpty() bool {
-	return len(ask.items) == 0
+	return ask.Len() == 0
 }
 
 func NewQueueBid() *OrderQueueBid {
@@ -150,6 +187,7 @@ func NewQueueBid() *OrderQueueBid {
 type OrderQueueBid struct {
 	items  []*Order
 	lookup map[interface{}]*Order // two-way mappings
+	sync.RWMutex
 }
 
 // Interface method for heap
@@ -172,13 +210,13 @@ func (bid *OrderQueueBid) Swap(i, j int) {
 // Interface method for heap
 func (bid *OrderQueueBid) Push(x interface{}) {
 	order := x.(*Order)
-	order.Index = len(bid.items)
+	order.Index = bid.Len()
 	bid.items = append(bid.items, order)
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Pop() interface{} {
-	n := len(bid.items)
+	n := bid.Len()
 	order := bid.items[n-1]
 	order.Index = -1
 	bid.items = bid.items[0 : n-1]
@@ -187,6 +225,8 @@ func (bid *OrderQueueBid) Pop() interface{} {
 
 // Initialise the order queue
 func (bid *OrderQueueBid) Init() {
+	bid.Lock()
+	defer bid.Unlock()
 	heap.Init(bid)
 }
 
@@ -195,6 +235,9 @@ func (bid *OrderQueueBid) Add(o *Order) {
 	if _, ok := bid.lookup[o.OrderId]; ok {
 		return
 	}
+
+	bid.Lock()
+	defer bid.Unlock()
 
 	heap.Push(bid, o)
 	bid.lookup[o.OrderId] = o
@@ -205,6 +248,9 @@ func (bid *OrderQueueBid) Next() *Order {
 		return nil
 	}
 
+	bid.Lock()
+	defer bid.Unlock()
+
 	order := heap.Pop(bid).(*Order)
 	delete(bid.lookup, order.OrderId)
 	return order
@@ -212,8 +258,11 @@ func (bid *OrderQueueBid) Next() *Order {
 
 func (bid *OrderQueueBid) Update(id string, n *Order) error {
 	if _, ok := bid.lookup[id]; !ok {
-		return errors.New("order does not exist")
+		return errors.New("Order does not exist")
 	}
+
+	bid.RLock()
+	defer bid.RUnlock()
 
 	index := bid.lookup[id].Index
 
@@ -223,13 +272,14 @@ func (bid *OrderQueueBid) Update(id string, n *Order) error {
 }
 
 func (bid *OrderQueueBid) Peek(i int) *Order {
-	if ok := bid.items[i]; ok == nil {
-		return ok
+
+	if i >= bid.Len() {
+		return nil
 	}
 
 	return bid.items[i]
 }
 
 func (bid *OrderQueueBid) IsEmpty() bool {
-	return len(bid.items) == 0
+	return bid.Len() == 0
 }

@@ -14,7 +14,7 @@ type Order struct {
 	OrderId   string  `json:"order_id"`
 	Market    string  `json:"market"`
 	Type      string  `json:"type"`
-	Stock     *Link   `json:"stock"`
+	StockCode string  `json:"stock_code"`
 	Price     float64 `json:"price"`
 	Amount    float64 `json:"amount"`
 	Total     float64 `json:"total"`
@@ -22,12 +22,12 @@ type Order struct {
 	Index     int     `json:"-"`
 }
 
-func NewOrder(market, tp string, stock *Stock, price, amount float64) *Order {
+func NewOrder(market, tp, code string, price, amount float64) *Order {
 	return &Order{
 		OrderId:   uuid.NewV4().String(),
 		Market:    market,
 		Type:      tp,
-		Stock:     stock.RefLink(),
+		StockCode: code,
 		Price:     price,
 		Amount:    amount,
 		Total:     price * amount,

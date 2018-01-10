@@ -20,15 +20,15 @@ func TestOrderList(t *testing.T) {
 	book := NewBook()
 	ask := NewQueueAsk()
 	bid := NewQueueBid()
-	book.List("Ask", ask)
-	book.List("Bid", bid)
+	book.SetQueue("Ask", ask)
+	book.SetQueue("Bid", bid)
 
 	for i := 0; i < 10; i++ {
 		ask.Add(
 			NewOrder(
 				"Test_Market",
 				ORDER_TYPE_ASK,
-				stock,
+				stock.Code,
 				r.Float64()*100,
 				r.Float64()*100,
 			),
@@ -37,7 +37,7 @@ func TestOrderList(t *testing.T) {
 			NewOrder(
 				"Test_Market",
 				ORDER_TYPE_BID,
-				stock,
+				stock.Code,
 				r.Float64()*100,
 				r.Float64()*100,
 			),

@@ -25,7 +25,3 @@ func NewStock(name, code, desc string, total, circul float64, ref string) *Stock
 		Reference:         ref,
 	}
 }
-
-func (stock *Stock) RefLink() *Link {
-	return NewLink(stock.Reference)
-}
