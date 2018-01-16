@@ -5,7 +5,8 @@ package models
 import (
 	"container/heap"
 	"errors"
-	"fmt"
+	// "fmt"
+	"github.com/gravel/math"
 	"sync"
 )
 
@@ -21,20 +22,35 @@ func NewBook() *OrderBook {
 
 // An orderbook lists the trading options for a specified stock
 type OrderBook struct {
-	queues map[string]OrderQueue
-	Deals  chan *Deal
+	queues    map[string]OrderQueue
+	histories []*Deal
+	Deals     chan *Deal
+	sync.Mutex
 }
 
 func (ob *OrderBook) Sum() *Summary {
+	length := len(ob.histories)
+
+	if length == 0 {
+		return &Summary{
+			Queues:    ob.queues,
+			Histories: []*Deal{},
+		}
+	}
+
 	return &Summary{
-		Queues: ob.queues,
+		Queues:    ob.queues,
+		Histories: ob.histories[math.MaxInt(length-100, 0):],
 	}
 }
 
 func (ob *OrderBook) Update() {
 	select {
 	case deal := <-ob.Deals:
-		fmt.Println("Price:", deal.Price, "Amount:", deal.Amount, "Timestamp:", deal.Timestamp, "Total:", deal.Total)
+		// fmt.Println("Price:", deal.Price, "Amount:", deal.Amount, "Timestamp:", deal.Timestamp, "Total:", deal.Total)
+		ob.Lock()
+		ob.histories = append(ob.histories, deal)
+		ob.Unlock()
 	default:
 	}
 }
@@ -52,7 +68,8 @@ func (ob *OrderBook) Queues() *map[string]OrderQueue {
 }
 
 type Summary struct {
-	Queues map[string]OrderQueue `json:"queues"`
+	Queues    map[string]OrderQueue `json:"queues"`
+	Histories []*Deal               `json:"histories"`
 }
 
 type OrderQueue interface {
@@ -67,47 +84,47 @@ type OrderQueue interface {
 
 func NewQueueAsk() *OrderQueueAsk {
 	return &OrderQueueAsk{
-		items:  []*Order{},
+		Items:  []*Order{},
 		lookup: map[interface{}]*Order{},
 	}
 }
 
 type OrderQueueAsk struct {
-	items  []*Order
+	Items  []*Order               `json:"items"`
 	lookup map[interface{}]*Order // two-way mappings
 	sync.RWMutex
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Len() int {
-	return len(ask.items)
+	return len(ask.Items)
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Less(i, j int) bool {
-	return ask.items[i].Price < ask.items[j].Price
+	return ask.Items[i].Price < ask.Items[j].Price
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Swap(i, j int) {
-	ask.items[i], ask.items[j] = ask.items[j], ask.items[i]
-	ask.items[i].Index = i
-	ask.items[j].Index = j
+	ask.Items[i], ask.Items[j] = ask.Items[j], ask.Items[i]
+	ask.Items[i].Index = i
+	ask.Items[j].Index = j
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Push(x interface{}) {
 	order := x.(*Order)
 	order.Index = ask.Len()
-	ask.items = append(ask.items, order)
+	ask.Items = append(ask.Items, order)
 }
 
 // Interface method for heap
 func (ask *OrderQueueAsk) Pop() interface{} {
 	n := ask.Len()
-	order := ask.items[n-1]
+	order := ask.Items[n-1]
 	order.Index = -1
-	ask.items = ask.items[0 : n-1]
+	ask.Items = ask.Items[0 : n-1]
 	return order
 }
 
@@ -120,12 +137,12 @@ func (ask *OrderQueueAsk) Init() {
 
 // Add a new order in the orderbook
 func (ask *OrderQueueAsk) Add(o *Order) {
+	ask.Lock()
+	defer ask.Unlock()
+
 	if _, ok := ask.lookup[o.OrderId]; ok {
 		return
 	}
-
-	ask.Lock()
-	defer ask.Unlock()
 
 	heap.Push(ask, o)
 	ask.lookup[o.OrderId] = o
@@ -170,7 +187,7 @@ func (ask *OrderQueueAsk) Peek(i int) *Order {
 		return nil
 	}
 
-	return ask.items[i]
+	return ask.Items[i]
 }
 
 func (ask *OrderQueueAsk) IsEmpty() bool {
@@ -179,47 +196,47 @@ func (ask *OrderQueueAsk) IsEmpty() bool {
 
 func NewQueueBid() *OrderQueueBid {
 	return &OrderQueueBid{
-		items:  []*Order{},
+		Items:  []*Order{},
 		lookup: map[interface{}]*Order{},
 	}
 }
 
 type OrderQueueBid struct {
-	items  []*Order
+	Items  []*Order               `json:"items"`
 	lookup map[interface{}]*Order // two-way mappings
 	sync.RWMutex
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Len() int {
-	return len(bid.items)
+	return len(bid.Items)
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Less(i, j int) bool {
-	return bid.items[i].Price > bid.items[j].Price
+	return bid.Items[i].Price > bid.Items[j].Price
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Swap(i, j int) {
-	bid.items[i], bid.items[j] = bid.items[j], bid.items[i]
-	bid.items[i].Index = i
-	bid.items[j].Index = j
+	bid.Items[i], bid.Items[j] = bid.Items[j], bid.Items[i]
+	bid.Items[i].Index = i
+	bid.Items[j].Index = j
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Push(x interface{}) {
 	order := x.(*Order)
 	order.Index = bid.Len()
-	bid.items = append(bid.items, order)
+	bid.Items = append(bid.Items, order)
 }
 
 // Interface method for heap
 func (bid *OrderQueueBid) Pop() interface{} {
 	n := bid.Len()
-	order := bid.items[n-1]
+	order := bid.Items[n-1]
 	order.Index = -1
-	bid.items = bid.items[0 : n-1]
+	bid.Items = bid.Items[0 : n-1]
 	return order
 }
 
@@ -232,12 +249,12 @@ func (bid *OrderQueueBid) Init() {
 
 // Add a new order in the orderbook
 func (bid *OrderQueueBid) Add(o *Order) {
+	bid.Lock()
+	defer bid.Unlock()
+
 	if _, ok := bid.lookup[o.OrderId]; ok {
 		return
 	}
-
-	bid.Lock()
-	defer bid.Unlock()
 
 	heap.Push(bid, o)
 	bid.lookup[o.OrderId] = o
@@ -277,7 +294,7 @@ func (bid *OrderQueueBid) Peek(i int) *Order {
 		return nil
 	}
 
-	return bid.items[i]
+	return bid.Items[i]
 }
 
 func (bid *OrderQueueBid) IsEmpty() bool {

@@ -37,7 +37,7 @@ func TestExchange(t *testing.T) {
 		exchange.Register(NewBroker())
 	}
 
-	exchange.Start()
+	go exchange.Start()
 
 	exchange.Issue(stock)
 
@@ -46,13 +46,12 @@ func TestExchange(t *testing.T) {
 			err := exchange.Buy(
 				CODE,
 				MARKET_BID,
-				10+r.Float64()*10,
-				10+r.Float64()*10,
+				15,
+				15,
 			)
 			if err != nil {
 				panic(err)
 			}
-			<-time.After(time.Second)
 		}
 	}()
 
@@ -61,14 +60,21 @@ func TestExchange(t *testing.T) {
 			err := exchange.Sell(
 				CODE,
 				MARKET_ASK,
-				10,
-				10,
+				10+r.Float64()*10,
+				10+r.Float64()*10,
 			)
 			if err != nil {
 				panic(err)
 			}
-			<-time.After(time.Second)
 		}
 	}()
 
+	<-time.After(3 * time.Second)
+
+	// log histories
+	for _, his := range exchange.Broadcast().Summaries[0].Histories {
+		t.Log(*his)
+	}
+
+	exchange.Stop()
 }

@@ -12,6 +12,7 @@ type Exchange struct {
 	stocks map[string]*Stock
 	// orderbooks
 	books map[string]*OrderBook
+	exit  chan bool
 }
 
 func NewExchange() *Exchange {
@@ -19,6 +20,7 @@ func NewExchange() *Exchange {
 		pool:   map[string]*Broker{},
 		stocks: map[string]*Stock{},
 		books:  map[string]*OrderBook{},
+		exit:   make(chan bool),
 	}
 }
 
@@ -30,6 +32,22 @@ func (ex *Exchange) DeRegister(id string) {
 	if b, ok := ex.pool[id]; ok {
 		b.Stop()
 		delete(ex.pool, id)
+	}
+}
+
+func (ex *Exchange) Broadcast() *Message {
+
+	var (
+		payload []*Summary
+	)
+
+	for _, book := range ex.books {
+		payload = append(payload, book.Sum())
+	}
+
+	return &Message{
+		Command:   MESSAGE_COMMAND_SUMMARY,
+		Summaries: payload,
 	}
 }
 
@@ -121,12 +139,22 @@ func (ex *Exchange) Issue(s *Stock, num ...int) error {
 	return nil
 }
 
+func (ex *Exchange) Stop() {
+	ex.exit <- true
+}
+
 func (ex *Exchange) Start() {
-	go func() {
-		for {
+	for {
+		select {
+		case <-ex.exit:
+			for _, b := range ex.pool {
+				b.Stop()
+			}
+			return
+		default:
 			for _, b := range ex.books {
 				b.Update()
 			}
 		}
-	}()
+	}
 }

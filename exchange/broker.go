@@ -49,7 +49,7 @@ func (b *Broker) Start() {
 			default:
 
 				if oask, obid := b.Ask.Peek(0), b.Bid.Peek(0); oask != nil && obid != nil {
-					if oask.Price < obid.Price {
+					if oask.Price <= obid.Price {
 						if oask.Amount == obid.Amount {
 							b.Deals <- Match(b.Ask.Next(), b.Bid.Next())
 						} else if oask.Amount < obid.Amount {
@@ -82,5 +82,5 @@ func Match(ask *Order, bid *Order) *Deal {
 	ask.Amount -= amount
 	bid.Amount -= amount
 
-	return NewDeal(amount, ask.Price)
+	return NewDeal(ask.Price, amount)
 }
