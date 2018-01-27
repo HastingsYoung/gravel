@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/websocket"
+	. "github.com/gravel/app"
 	. "github.com/gravel/exchange"
 	. "github.com/gravel/models"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -66,6 +68,16 @@ func main() {
 	http.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
 		serve(hub, w, r)
 	})
+
+	http.HandleFunc("/", Index)
+	http.Handle(
+		"/static/",
+		http.StripPrefix("/static/",
+			http.FileServer(
+				http.Dir(os.Getenv("GOPATH")+"/src/github.com/gravel/static/"),
+			),
+		),
+	)
 
 	panic(http.ListenAndServe("localhost:8080", nil))
 }

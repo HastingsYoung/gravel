@@ -40,6 +40,7 @@ func (b *Broker) Start() {
 
 	// start looping
 	go func() {
+		// todo: modify busy waiting to chan
 		for {
 
 			select {
